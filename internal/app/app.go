@@ -138,20 +138,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.textarea.SetWidth(msg.Width - 2)
 
-	case streamTokenMsg:
-		m.currentResp.WriteString(string(msg))
-		m.updateViewport()
-		return m, nil
-
-	case streamDoneMsg:
-		if m.currentResp.Len() > 0 {
+	case streamResponseMsg:
+		// Complete response received
+		if len(msg) > 0 {
 			m.messages = append(m.messages, chatMessage{
 				role:    "assistant",
-				content: m.currentResp.String(),
+				content: string(msg),
 			})
 		}
 		m.streaming = false
-		m.currentResp.Reset()
 		m.updateViewport()
 		return m, nil
 
@@ -256,23 +251,16 @@ func (m *Model) sendMessage(input string) tea.Cmd {
 	return func() tea.Msg {
 		tokenChan, errChan := m.client.Chat(input)
 
-		// Process tokens
-		go func() {
-			for token := range tokenChan {
-				// We need to send through program, but for simplicity
-				// we'll collect all tokens here
-				_ = token
-			}
-		}()
-
-		// Wait for completion or error
+		// Collect all tokens (blocking)
+		var response strings.Builder
 		for {
 			select {
 			case token, ok := <-tokenChan:
 				if !ok {
-					return streamDoneMsg{}
+					// Channel closed, streaming done
+					return streamResponseMsg(response.String())
 				}
-				return streamTokenMsg(token)
+				response.WriteString(token)
 			case err := <-errChan:
 				if err != nil {
 					return streamErrorMsg{err: err}
@@ -281,6 +269,9 @@ func (m *Model) sendMessage(input string) tea.Cmd {
 		}
 	}
 }
+
+// New message type for complete response
+type streamResponseMsg string
 
 func (m *Model) updateViewport() {
 	var content strings.Builder
@@ -327,7 +318,7 @@ Provider: %s
 Model: %s
 
 %s
-• Type your message and press Ctrl+S to send
+• Type your message and press Enter to send
 • Use /help for available commands
 • Press Ctrl+C to quit
 

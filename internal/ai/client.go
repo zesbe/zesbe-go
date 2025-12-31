@@ -110,6 +110,8 @@ func (c *Client) Chat(userMessage string) (<-chan string, <-chan error) {
 
 		// Stream response
 		var fullResponse strings.Builder
+		var displayResponse strings.Builder
+		var inThinkBlock bool
 		reader := bufio.NewReader(resp.Body)
 
 		for {
@@ -138,7 +140,18 @@ func (c *Client) Chat(userMessage string) (<-chan string, <-chan error) {
 					content := chatResp.Choices[0].Delta.Content
 					if content != "" {
 						fullResponse.WriteString(content)
-						tokenChan <- content
+
+						// Filter out <think>...</think> blocks for display
+						if strings.Contains(content, "<think>") {
+							inThinkBlock = true
+						}
+						if !inThinkBlock {
+							displayResponse.WriteString(content)
+							tokenChan <- content
+						}
+						if strings.Contains(content, "</think>") {
+							inThinkBlock = false
+						}
 					}
 				}
 			}
