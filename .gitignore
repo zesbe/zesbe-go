@@ -1,0 +1,15 @@
+# Binary
+zesbe-go
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (contains API keys)
+config.json
