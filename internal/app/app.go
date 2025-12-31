@@ -66,11 +66,12 @@ type chatMessage struct {
 
 func New(cfg *config.Config) *Model {
 	ta := textarea.New()
-	ta.Placeholder = "Type your message... (Ctrl+S to send, Ctrl+C to quit)"
+	ta.Placeholder = "Type your message... (Enter to send, Ctrl+C to quit)"
 	ta.Focus()
 	ta.CharLimit = 10000
-	ta.SetHeight(3)
+	ta.SetHeight(1)
 	ta.ShowLineNumbers = false
+	ta.KeyMap.InsertNewline.SetEnabled(false) // Disable Enter for newline
 
 	return &Model{
 		config:   cfg,
@@ -93,7 +94,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
 
-		case "ctrl+s":
+		case "enter", "ctrl+s":
 			if m.streaming {
 				return m, nil
 			}
@@ -194,7 +195,7 @@ func (m *Model) View() string {
 	}
 
 	// Help text
-	help := helpStyle.Render("Ctrl+S: Send | Ctrl+L: Clear | Ctrl+C: Quit")
+	help := helpStyle.Render("Enter: Send | Ctrl+L: Clear | Ctrl+C: Quit")
 
 	return fmt.Sprintf(
 		"%s\n\n%s\n\n%s\n%s\n%s",
