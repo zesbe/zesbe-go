@@ -13,3 +13,4 @@ Thumbs.db
 
 # Config (contains API keys)
 config.json
+zesbe-no-cgo
