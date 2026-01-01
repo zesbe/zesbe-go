@@ -301,7 +301,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.streamingText.Reset()
 				m.statusText = "Error"
 				m.updateViewport()
-				return m, nil
+				// Re-focus textarea after error
+				m.textarea.Focus()
+				return m, textarea.Blink
 			}
 		default:
 		}
@@ -330,7 +332,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.streamingText.Reset()
 					m.statusText = "Ready"
 					m.updateViewport()
-					return m, nil
+					// Re-focus textarea after streaming
+					m.textarea.Focus()
+					return m, textarea.Blink
 				}
 				m.streamingText.WriteString(token)
 				m.statusText = "Receiving..."
@@ -358,7 +362,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.streamingText.Reset()
 		m.statusText = "Error"
 		m.updateViewport()
-		return m, nil
+		// Re-focus textarea after error
+		m.textarea.Focus()
+		return m, textarea.Blink
 	}
 
 	// Update textarea (only when not streaming)
