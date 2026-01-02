@@ -550,14 +550,16 @@ func (m *Model) View() string {
 	// Chat viewport
 	chatView := m.viewport.View()
 
-	// Input area - always show textarea, add streaming indicator above it
+	// Input area with nice border
 	var inputView string
+	inputLabel := helpStyle.Render("  ✏️  Type here (tap to show keyboard):")
+
 	if m.streaming {
 		// Show streaming indicator above the textarea
-		streamingIndicator := streamingStyle.Render(fmt.Sprintf("  %s %s", m.spinner.View(), m.statusText))
-		inputView = streamingIndicator + "\n" + m.textarea.View()
+		streamingIndicator := streamingStyle.Render(fmt.Sprintf("\n  %s %s\n", m.spinner.View(), m.statusText))
+		inputView = streamingIndicator + inputLabel + "\n" + m.textarea.View()
 	} else {
-		inputView = m.textarea.View()
+		inputView = inputLabel + "\n" + m.textarea.View()
 	}
 
 	// Quick actions menu (if open)
@@ -972,41 +974,48 @@ func (m *Model) sendMessage(input string) tea.Cmd {
 func (m *Model) updateViewport() {
 	var content strings.Builder
 
-	for _, msg := range m.messages {
+	// Separator style
+	separator := helpStyle.Render("  ─────────────────────────────────────────")
+
+	for i, msg := range m.messages {
 		// Format timestamp
 		timestamp := helpStyle.Render(msg.Timestamp.Format("15:04"))
 
 		switch msg.Role {
 		case "user":
-			content.WriteString(fmt.Sprintf("%s %s\n", userLabelStyle.Render(), timestamp))
-			content.WriteString(stripANSI(msg.Content))
+			if i > 0 {
+				content.WriteString(separator + "\n\n")
+			}
+			content.WriteString(fmt.Sprintf("  %s %s\n", userLabelStyle.Render("👤 You"), timestamp))
+			content.WriteString("  " + strings.ReplaceAll(stripANSI(msg.Content), "\n", "\n  "))
 			content.WriteString("\n\n")
 
 		case "assistant":
-			content.WriteString(fmt.Sprintf("%s %s\n", assistantLabelStyle.Render(), timestamp))
+			content.WriteString(separator + "\n\n")
+			content.WriteString(fmt.Sprintf("  %s %s\n\n", assistantLabelStyle.Render("🤖 Zesbe"), timestamp))
 			cleanContent := stripANSI(msg.Content)
 			rendered, err := m.mdRenderer.Render(cleanContent)
 			if err != nil {
-				content.WriteString(cleanContent)
+				content.WriteString("  " + cleanContent)
 			} else {
 				content.WriteString(strings.TrimSpace(rendered))
 			}
 			content.WriteString("\n\n")
 
 		case "system":
-			content.WriteString(fmt.Sprintf("%s %s\n", systemStyle.Render("› System:"), timestamp))
+			content.WriteString(fmt.Sprintf("  %s %s\n", systemStyle.Render("ℹ️  System"), timestamp))
 			cleanContent := stripANSI(msg.Content)
 			rendered, err := m.mdRenderer.Render(cleanContent)
 			if err != nil {
-				content.WriteString(systemStyle.Render(cleanContent))
+				content.WriteString("  " + systemStyle.Render(cleanContent))
 			} else {
 				content.WriteString(strings.TrimSpace(rendered))
 			}
 			content.WriteString("\n\n")
 
 		case "error":
-			content.WriteString(fmt.Sprintf("%s %s\n", errorStyle.Render(), timestamp))
-			content.WriteString(stripANSI(msg.Content))
+			content.WriteString(fmt.Sprintf("  %s %s\n", errorStyle.Render("❌ Error"), timestamp))
+			content.WriteString("  " + stripANSI(msg.Content))
 			content.WriteString("\n\n")
 		}
 	}
@@ -1023,52 +1032,60 @@ func (m *Model) updateViewport() {
 func (m *Model) updateViewportWithStreaming() {
 	var content strings.Builder
 
+	// Separator style
+	separator := helpStyle.Render("  ─────────────────────────────────────────")
+
 	// Show existing messages
-	for _, msg := range m.messages {
+	for i, msg := range m.messages {
 		// Format timestamp
 		timestamp := helpStyle.Render(msg.Timestamp.Format("15:04"))
 
 		switch msg.Role {
 		case "user":
-			content.WriteString(fmt.Sprintf("%s %s\n", userLabelStyle.Render(), timestamp))
-			content.WriteString(stripANSI(msg.Content))
+			if i > 0 {
+				content.WriteString(separator + "\n\n")
+			}
+			content.WriteString(fmt.Sprintf("  %s %s\n", userLabelStyle.Render("👤 You"), timestamp))
+			content.WriteString("  " + strings.ReplaceAll(stripANSI(msg.Content), "\n", "\n  "))
 			content.WriteString("\n\n")
 
 		case "assistant":
-			content.WriteString(fmt.Sprintf("%s %s\n", assistantLabelStyle.Render(), timestamp))
+			content.WriteString(separator + "\n\n")
+			content.WriteString(fmt.Sprintf("  %s %s\n\n", assistantLabelStyle.Render("🤖 Zesbe"), timestamp))
 			cleanContent := stripANSI(msg.Content)
 			rendered, err := m.mdRenderer.Render(cleanContent)
 			if err != nil {
-				content.WriteString(cleanContent)
+				content.WriteString("  " + cleanContent)
 			} else {
 				content.WriteString(strings.TrimSpace(rendered))
 			}
 			content.WriteString("\n\n")
 
 		case "system":
-			content.WriteString(fmt.Sprintf("%s %s\n", systemStyle.Render("› System:"), timestamp))
+			content.WriteString(fmt.Sprintf("  %s %s\n", systemStyle.Render("ℹ️  System"), timestamp))
 			cleanContent := stripANSI(msg.Content)
 			rendered, err := m.mdRenderer.Render(cleanContent)
 			if err != nil {
-				content.WriteString(systemStyle.Render(cleanContent))
+				content.WriteString("  " + systemStyle.Render(cleanContent))
 			} else {
 				content.WriteString(strings.TrimSpace(rendered))
 			}
 			content.WriteString("\n\n")
 
 		case "error":
-			content.WriteString(fmt.Sprintf("%s %s\n", errorStyle.Render(), timestamp))
-			content.WriteString(stripANSI(msg.Content))
+			content.WriteString(fmt.Sprintf("  %s %s\n", errorStyle.Render("❌ Error"), timestamp))
+			content.WriteString("  " + stripANSI(msg.Content))
 			content.WriteString("\n\n")
 		}
 	}
 
 	// Show streaming response with cursor
 	if m.streaming && m.streamingText.Len() > 0 {
+		content.WriteString(separator + "\n\n")
 		nowTime := helpStyle.Render(time.Now().Format("15:04"))
-		content.WriteString(fmt.Sprintf("%s %s\n", assistantLabelStyle.Render(), nowTime))
-		content.WriteString(stripANSI(m.streamingText.String()))
-		content.WriteString(streamingStyle.Render("▋"))
+		content.WriteString(fmt.Sprintf("  %s %s\n\n", assistantLabelStyle.Render("🤖 Zesbe"), nowTime))
+		content.WriteString("  " + stripANSI(m.streamingText.String()))
+		content.WriteString(streamingStyle.Render(" ▋"))
 		content.WriteString("\n")
 	}
 
