@@ -405,8 +405,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.Width = msg.Width
 			m.viewport.Height = msg.Height - 10
 			m.updateViewport()
+			// Re-focus textarea on resize (helps with Android keyboard)
+			m.textarea.Focus()
 		}
 		m.textarea.SetWidth(msg.Width - 4)
+		// Always ensure textarea has focus for mobile keyboard
+		return m, textarea.Blink
+
+	case tea.MouseMsg:
+		// Handle mouse/touch to focus textarea (helps trigger keyboard on mobile)
+		if !m.streaming {
+			m.textarea.Focus()
+			return m, textarea.Blink
+		}
 
 	case spinner.TickMsg:
 		if m.streaming {
@@ -580,7 +591,7 @@ func (m *Model) View() string {
 	} else {
 		msgCount := len(m.messages)
 		statusBar = helpStyle.Render(fmt.Sprintf(
-			"  💬 %d │ 📡 %d │ ⏱️ %s%s │ Ctrl+A: Actions │ Ctrl+M: Multi-line │ Ctrl+S: Stats",
+			"  💬 %d │ 📡 %d │ ⏱️ %s%s │ 👆 Tap input area │ Ctrl+A: Actions",
 			msgCount, stats.TotalRequests, uptime, modeIndicator,
 		))
 	}
