@@ -392,6 +392,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateViewport()
 				return m, nil
 			}
+
+		// Scroll controls
+		case "pgup", "ctrl+u":
+			m.viewport.HalfViewUp()
+			return m, nil
+
+		case "pgdown", "ctrl+d":
+			m.viewport.HalfViewDown()
+			return m, nil
+
+		case "home", "ctrl+home":
+			m.viewport.GotoTop()
+			return m, nil
+
+		case "end", "ctrl+end":
+			m.viewport.GotoBottom()
+			return m, nil
+
+		case "ctrl+up":
+			m.viewport.LineUp(3)
+			return m, nil
+
+		case "ctrl+down":
+			m.viewport.LineDown(3)
+			return m, nil
 		}
 
 	case tea.WindowSizeMsg:
@@ -423,11 +448,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, textarea.Blink
 
 	case tea.MouseMsg:
-		// Handle mouse/touch to focus textarea (helps trigger keyboard on mobile)
-		if !m.streaming {
-			m.textarea.Focus()
-			m.lastFocusTime = time.Now()
-			return m, textarea.Blink
+		// Handle mouse wheel scrolling
+		switch msg.Type {
+		case tea.MouseWheelUp:
+			m.viewport.LineUp(3)
+			return m, nil
+		case tea.MouseWheelDown:
+			m.viewport.LineDown(3)
+			return m, nil
+		default:
+			// Handle mouse/touch to focus textarea (helps trigger keyboard on mobile)
+			if !m.streaming {
+				m.textarea.Focus()
+				m.lastFocusTime = time.Now()
+				return m, textarea.Blink
+			}
 		}
 
 	case focusCheckMsg:
@@ -1151,6 +1186,9 @@ func (m *Model) renderWelcome() string {
 | Ctrl+N | New conversation |
 | Ctrl+L | Clear chat |
 | ↑/↓ | Command history |
+| PgUp/PgDn | Scroll chat |
+| Ctrl+U/D | Scroll half page |
+| Home/End | Top/Bottom |
 
 ---
 
