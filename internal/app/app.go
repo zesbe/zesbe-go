@@ -172,6 +172,8 @@ func New(cfg *config.Config) *Model {
 
 // Init initializes the model
 func (m *Model) Init() tea.Cmd {
+	// Clear any garbage in textarea from terminal escape sequences
+	m.textarea.Reset()
 	return tea.Batch(textarea.Blink, m.spinner.Tick)
 }
 
@@ -267,6 +269,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport = viewport.New(msg.Width, msg.Height-10)
 			m.viewport.SetContent(m.renderWelcome())
 			m.ready = true
+			// Clear textarea on first ready - removes any terminal escape garbage
+			m.textarea.Reset()
+			m.textarea.Focus()
 		} else {
 			m.viewport.Width = msg.Width
 			m.viewport.Height = msg.Height - 10
@@ -943,6 +948,14 @@ func stripANSI(s string) string {
 	// Also remove common escape patterns that might slip through
 	extraRegex := regexp.MustCompile(`\][0-9]+;[^\s\]]*`)
 	result = extraRegex.ReplaceAllString(result, "")
+
+	// Remove terminal color/graphics response patterns like "gb:0000/0000/0000" or "rgb:xxxx/xxxx/xxxx"
+	rgbRegex := regexp.MustCompile(`(rgb?|gb):([0-9a-fA-F]{2,4}/){2}[0-9a-fA-F]{2,4}`)
+	result = rgbRegex.ReplaceAllString(result, "")
+
+	// Remove OSC responses and other terminal queries
+	oscRegex := regexp.MustCompile(`\x1b\][\d;]*[^\x07\x1b]*[\x07]?`)
+	result = oscRegex.ReplaceAllString(result, "")
 
 	// Remove any remaining control characters except newlines and tabs
 	cleanRegex := regexp.MustCompile(`[\x00-\x08\x0b\x0c\x0e-\x1f]`)
