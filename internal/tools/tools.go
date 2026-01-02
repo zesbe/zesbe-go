@@ -760,12 +760,12 @@ func WebSearch(query string) ToolResult {
 	return ToolResult{Success: true, Output: output}
 }
 
-// FetchURL fetches content from a URL
+// FetchURL fetches content from a URL and extracts readable text
 func FetchURL(url string) ToolResult {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "curl", "-sL", "-A", "Zesbe-Go/1.0", url)
+	cmd := exec.CommandContext(ctx, "curl", "-sL", "-A", "Mozilla/5.0 (compatible; Zesbe-Go/1.0)", url)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -775,13 +775,144 @@ func FetchURL(url string) ToolResult {
 		return ToolResult{Success: false, Error: fmt.Sprintf("fetch failed: %v", err), Output: stderr.String()}
 	}
 
-	output := stdout.String()
-	// Limit output size
-	if len(output) > 50000 {
-		output = output[:50000] + "\n... (truncated)"
+	rawHTML := stdout.String()
+	if rawHTML == "" {
+		return ToolResult{Success: false, Error: "empty response from URL"}
 	}
 
-	return ToolResult{Success: true, Output: output}
+	// Extract text content from HTML
+	text := extractTextFromHTML(rawHTML)
+
+	// Limit output size
+	if len(text) > 15000 {
+		text = text[:15000] + "\n\n... (content truncated)"
+	}
+
+	return ToolResult{Success: true, Output: text}
+}
+
+// extractTextFromHTML converts HTML to readable plain text
+func extractTextFromHTML(html string) string {
+	// Remove script and style tags with their content
+	html = removeTagWithContent(html, "script")
+	html = removeTagWithContent(html, "style")
+	html = removeTagWithContent(html, "noscript")
+	html = removeTagWithContent(html, "head")
+	html = removeTagWithContent(html, "nav")
+	html = removeTagWithContent(html, "footer")
+	html = removeTagWithContent(html, "header")
+	html = removeTagWithContent(html, "aside")
+
+	// Convert common HTML entities
+	replacements := map[string]string{
+		"&nbsp;":  " ",
+		"&amp;":   "&",
+		"&lt;":    "<",
+		"&gt;":    ">",
+		"&quot;":  "\"",
+		"&apos;":  "'",
+		"&#39;":   "'",
+		"&mdash;": "—",
+		"&ndash;": "–",
+		"&copy;":  "©",
+		"&reg;":   "®",
+		"&trade;": "™",
+		"&hellip;": "...",
+		"&bull;":  "•",
+	}
+	for entity, char := range replacements {
+		html = strings.ReplaceAll(html, entity, char)
+	}
+
+	// Add newlines before block elements
+	blockTags := []string{"p", "div", "br", "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr", "article", "section"}
+	for _, tag := range blockTags {
+		html = strings.ReplaceAll(html, "<"+tag, "\n<"+tag)
+		html = strings.ReplaceAll(html, "</"+tag+">", "</"+tag+">\n")
+	}
+
+	// Remove all HTML tags
+	var result strings.Builder
+	inTag := false
+	for _, r := range html {
+		if r == '<' {
+			inTag = true
+		} else if r == '>' {
+			inTag = false
+		} else if !inTag {
+			result.WriteRune(r)
+		}
+	}
+
+	text := result.String()
+
+	// Clean up whitespace
+	lines := strings.Split(text, "\n")
+	var cleanLines []string
+	prevEmpty := false
+
+	for _, line := range lines {
+		// Collapse multiple spaces to single space
+		line = strings.Join(strings.Fields(line), " ")
+		line = strings.TrimSpace(line)
+
+		if line == "" {
+			if !prevEmpty {
+				cleanLines = append(cleanLines, "")
+				prevEmpty = true
+			}
+		} else {
+			cleanLines = append(cleanLines, line)
+			prevEmpty = false
+		}
+	}
+
+	// Remove leading/trailing empty lines
+	for len(cleanLines) > 0 && cleanLines[0] == "" {
+		cleanLines = cleanLines[1:]
+	}
+	for len(cleanLines) > 0 && cleanLines[len(cleanLines)-1] == "" {
+		cleanLines = cleanLines[:len(cleanLines)-1]
+	}
+
+	return strings.Join(cleanLines, "\n")
+}
+
+// removeTagWithContent removes HTML tags and their content
+func removeTagWithContent(html, tagName string) string {
+	// Simple regex-like removal for script/style tags
+	lower := strings.ToLower(html)
+	result := html
+
+	for {
+		startTag := "<" + tagName
+		endTag := "</" + tagName + ">"
+
+		startIdx := strings.Index(strings.ToLower(result), startTag)
+		if startIdx == -1 {
+			break
+		}
+
+		// Find the end of the start tag
+		tagEndIdx := strings.Index(result[startIdx:], ">")
+		if tagEndIdx == -1 {
+			break
+		}
+
+		// Find closing tag
+		endIdx := strings.Index(strings.ToLower(result[startIdx:]), endTag)
+		if endIdx == -1 {
+			// Self-closing or no end tag, just remove start tag
+			result = result[:startIdx] + result[startIdx+tagEndIdx+1:]
+		} else {
+			// Remove everything from start tag to end tag
+			result = result[:startIdx] + result[startIdx+endIdx+len(endTag):]
+		}
+
+		_ = lower // avoid unused warning
+	}
+
+	return result
 }
 
 // GitPush pushes to remote
