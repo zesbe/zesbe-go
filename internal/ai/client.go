@@ -282,15 +282,9 @@ func (c *Client) Chat(userMessage string) (<-chan string, <-chan error) {
 			}
 
 			for _, call := range toolCalls {
-				// Show tool being called
-				tokenChan <- fmt.Sprintf("🔧 **%s**", call.Name)
-				if path, ok := call.Params["path"]; ok && path != "" {
-					tokenChan <- fmt.Sprintf(" `%s`", path)
-				}
-				if cmd, ok := call.Params["command"]; ok && cmd != "" {
-					tokenChan <- fmt.Sprintf(" `%s`", truncateString(cmd, 50))
-				}
-				tokenChan <- "\n"
+				// Show tool being called with nice indicator
+				indicator := tools.FormatToolStart(call)
+				tokenChan <- indicator + "\n"
 
 				// Execute tool with timing
 				toolStart := time.Now()
@@ -303,19 +297,39 @@ func (c *Client) Chat(userMessage string) (<-chan string, <-chan error) {
 				toolResultsContent.WriteString(tools.FormatToolResult(call, result))
 				toolResultsContent.WriteString("\n\n")
 
-				// Show result preview
+				// Show result with nice formatting
+				durationStr := fmt.Sprintf("%dms", toolDuration.Milliseconds())
+				if toolDuration.Seconds() >= 1 {
+					durationStr = fmt.Sprintf("%.1fs", toolDuration.Seconds())
+				}
+
 				if result.Success {
 					output := result.Output
-					if len(output) > 500 {
-						output = output[:500] + "\n... (truncated)"
+					maxLen := 800
+					if len(output) > maxLen {
+						output = output[:maxLen] + "\n... (truncated)"
 					}
 					if output != "" {
-						tokenChan <- fmt.Sprintf("```\n%s\n```\n\n", output)
+						// Determine code block type based on tool
+						codeType := ""
+						switch call.Name {
+						case "git_diff":
+							codeType = "diff"
+						case "run_command":
+							codeType = "bash"
+						case "read_file":
+							// Try to detect language from file extension
+							if path := call.Params["path"]; path != "" {
+								codeType = detectLanguage(path)
+							}
+						}
+						tokenChan <- fmt.Sprintf("```%s\n%s\n```\n", codeType, output)
+						tokenChan <- fmt.Sprintf("✅ *Completed in %s*\n\n", durationStr)
 					} else {
-						tokenChan <- "✓ Done\n\n"
+						tokenChan <- fmt.Sprintf("✅ *Completed in %s*\n\n", durationStr)
 					}
 				} else {
-					tokenChan <- fmt.Sprintf("❌ Error: %s\n\n", result.Error)
+					tokenChan <- fmt.Sprintf("❌ **Error:** %s\n\n", result.Error)
 				}
 			}
 
@@ -539,4 +553,77 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// detectLanguage detects the programming language from file extension
+func detectLanguage(path string) string {
+	ext := strings.ToLower(path)
+	if idx := strings.LastIndex(ext, "."); idx >= 0 {
+		ext = ext[idx:]
+	} else {
+		return ""
+	}
+
+	languages := map[string]string{
+		".go":     "go",
+		".py":     "python",
+		".js":     "javascript",
+		".ts":     "typescript",
+		".tsx":    "tsx",
+		".jsx":    "jsx",
+		".rs":     "rust",
+		".java":   "java",
+		".c":      "c",
+		".cpp":    "cpp",
+		".h":      "c",
+		".hpp":    "cpp",
+		".cs":     "csharp",
+		".rb":     "ruby",
+		".php":    "php",
+		".swift":  "swift",
+		".kt":     "kotlin",
+		".scala":  "scala",
+		".sh":     "bash",
+		".bash":   "bash",
+		".zsh":    "zsh",
+		".fish":   "fish",
+		".sql":    "sql",
+		".html":   "html",
+		".css":    "css",
+		".scss":   "scss",
+		".less":   "less",
+		".json":   "json",
+		".yaml":   "yaml",
+		".yml":    "yaml",
+		".xml":    "xml",
+		".md":     "markdown",
+		".toml":   "toml",
+		".ini":    "ini",
+		".cfg":    "ini",
+		".conf":   "conf",
+		".dockerfile": "dockerfile",
+		".proto":  "protobuf",
+		".graphql": "graphql",
+		".vue":    "vue",
+		".svelte": "svelte",
+		".dart":   "dart",
+		".lua":    "lua",
+		".r":      "r",
+		".m":      "matlab",
+		".pl":     "perl",
+		".ex":     "elixir",
+		".exs":    "elixir",
+		".erl":    "erlang",
+		".hs":     "haskell",
+		".clj":    "clojure",
+		".lisp":   "lisp",
+		".vim":    "vim",
+		".tf":     "terraform",
+		".hcl":    "hcl",
+	}
+
+	if lang, ok := languages[ext]; ok {
+		return lang
+	}
+	return ""
 }

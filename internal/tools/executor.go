@@ -24,6 +24,7 @@ type ToolDefinition struct {
 // GetToolDefinitions returns all available tool definitions
 func GetToolDefinitions() []ToolDefinition {
 	return []ToolDefinition{
+		// File Operations
 		{
 			Name:        "read_file",
 			Description: "Read the contents of a file",
@@ -55,6 +56,18 @@ func GetToolDefinitions() []ToolDefinition {
 			Parameters:  []string{"path"},
 		},
 		{
+			Name:        "copy_file",
+			Description: "Copy a file to a new location",
+			Parameters:  []string{"source", "destination"},
+		},
+		{
+			Name:        "move_file",
+			Description: "Move a file to a new location",
+			Parameters:  []string{"source", "destination"},
+		},
+
+		// Search & Analysis
+		{
 			Name:        "find_files",
 			Description: "Search for files matching a pattern",
 			Parameters:  []string{"path", "pattern"},
@@ -65,10 +78,39 @@ func GetToolDefinitions() []ToolDefinition {
 			Parameters:  []string{"path", "pattern", "file_pattern"},
 		},
 		{
+			Name:        "code_search",
+			Description: "Search code with language filter (go, python, js, ts, rust, etc)",
+			Parameters:  []string{"path", "pattern", "language"},
+		},
+		{
+			Name:        "find_todos",
+			Description: "Find TODO, FIXME, HACK comments in code",
+			Parameters:  []string{"path"},
+		},
+		{
+			Name:        "count_lines",
+			Description: "Count lines of code in project",
+			Parameters:  []string{"path"},
+		},
+		{
+			Name:        "analyze_code",
+			Description: "Analyze code structure and statistics",
+			Parameters:  []string{"path"},
+		},
+		{
+			Name:        "project_tree",
+			Description: "Show project structure as tree",
+			Parameters:  []string{"path", "depth"},
+		},
+
+		// Command Execution
+		{
 			Name:        "run_command",
 			Description: "Execute a shell command",
 			Parameters:  []string{"command"},
 		},
+
+		// Git Operations
 		{
 			Name:        "git_status",
 			Description: "Show git repository status",
@@ -85,6 +127,11 @@ func GetToolDefinitions() []ToolDefinition {
 			Parameters:  []string{"count"},
 		},
 		{
+			Name:        "git_branch",
+			Description: "Show git branches",
+			Parameters:  []string{},
+		},
+		{
 			Name:        "git_add",
 			Description: "Stage files for commit",
 			Parameters:  []string{"files"},
@@ -95,6 +142,30 @@ func GetToolDefinitions() []ToolDefinition {
 			Parameters:  []string{"message"},
 		},
 		{
+			Name:        "git_push",
+			Description: "Push to remote repository",
+			Parameters:  []string{"remote", "branch"},
+		},
+		{
+			Name:        "git_pull",
+			Description: "Pull from remote repository",
+			Parameters:  []string{"remote", "branch"},
+		},
+
+		// Web & Network
+		{
+			Name:        "web_search",
+			Description: "Search the web using DuckDuckGo",
+			Parameters:  []string{"query"},
+		},
+		{
+			Name:        "fetch_url",
+			Description: "Fetch content from a URL",
+			Parameters:  []string{"url"},
+		},
+
+		// System
+		{
 			Name:        "get_cwd",
 			Description: "Get current working directory",
 			Parameters:  []string{},
@@ -103,6 +174,11 @@ func GetToolDefinitions() []ToolDefinition {
 			Name:        "change_directory",
 			Description: "Change current working directory",
 			Parameters:  []string{"path"},
+		},
+		{
+			Name:        "system_info",
+			Description: "Get system information",
+			Parameters:  []string{},
 		},
 	}
 }
@@ -165,6 +241,7 @@ func RemoveToolCalls(response string) string {
 // ExecuteTool executes a tool call and returns the result
 func ExecuteTool(call ToolCall) ToolResult {
 	switch call.Name {
+	// File Operations
 	case "read_file":
 		path := call.Params["path"]
 		if path == "" {
@@ -210,6 +287,23 @@ func ExecuteTool(call ToolCall) ToolResult {
 		}
 		return DeleteFile(path)
 
+	case "copy_file":
+		src := call.Params["source"]
+		dst := call.Params["destination"]
+		if src == "" || dst == "" {
+			return ToolResult{Success: false, Error: "source and destination parameters required"}
+		}
+		return CopyFile(src, dst)
+
+	case "move_file":
+		src := call.Params["source"]
+		dst := call.Params["destination"]
+		if src == "" || dst == "" {
+			return ToolResult{Success: false, Error: "source and destination parameters required"}
+		}
+		return MoveFile(src, dst)
+
+	// Search & Analysis
 	case "find_files":
 		path := call.Params["path"]
 		pattern := call.Params["pattern"]
@@ -233,6 +327,51 @@ func ExecuteTool(call ToolCall) ToolResult {
 		}
 		return GrepFiles(path, pattern, filePattern)
 
+	case "code_search":
+		path := call.Params["path"]
+		pattern := call.Params["pattern"]
+		language := call.Params["language"]
+		if path == "" {
+			path = "."
+		}
+		if pattern == "" {
+			return ToolResult{Success: false, Error: "pattern parameter required"}
+		}
+		return CodeSearch(path, pattern, language)
+
+	case "find_todos":
+		path := call.Params["path"]
+		if path == "" {
+			path = "."
+		}
+		return FindTodos(path)
+
+	case "count_lines":
+		path := call.Params["path"]
+		if path == "" {
+			path = "."
+		}
+		return CountLines(path)
+
+	case "analyze_code":
+		path := call.Params["path"]
+		if path == "" {
+			path = "."
+		}
+		return AnalyzeCode(path)
+
+	case "project_tree":
+		path := call.Params["path"]
+		if path == "" {
+			path = "."
+		}
+		depth := 3
+		if d := call.Params["depth"]; d != "" {
+			fmt.Sscanf(d, "%d", &depth)
+		}
+		return ProjectTree(path, depth)
+
+	// Command Execution
 	case "run_command":
 		command := call.Params["command"]
 		if command == "" {
@@ -240,6 +379,7 @@ func ExecuteTool(call ToolCall) ToolResult {
 		}
 		return ExecuteCommand(command, 30*time.Second)
 
+	// Git Operations
 	case "git_status":
 		return GitStatus(".")
 
@@ -253,6 +393,9 @@ func ExecuteTool(call ToolCall) ToolResult {
 			fmt.Sscanf(c, "%d", &count)
 		}
 		return GitLog(".", count)
+
+	case "git_branch":
+		return GitBranch(".")
 
 	case "git_add":
 		files := call.Params["files"]
@@ -268,6 +411,32 @@ func ExecuteTool(call ToolCall) ToolResult {
 		}
 		return GitCommit(".", message)
 
+	case "git_push":
+		remote := call.Params["remote"]
+		branch := call.Params["branch"]
+		return GitPush(".", remote, branch)
+
+	case "git_pull":
+		remote := call.Params["remote"]
+		branch := call.Params["branch"]
+		return GitPull(".", remote, branch)
+
+	// Web & Network
+	case "web_search":
+		query := call.Params["query"]
+		if query == "" {
+			return ToolResult{Success: false, Error: "query parameter required"}
+		}
+		return WebSearch(query)
+
+	case "fetch_url":
+		url := call.Params["url"]
+		if url == "" {
+			return ToolResult{Success: false, Error: "url parameter required"}
+		}
+		return FetchURL(url)
+
+	// System
 	case "get_cwd":
 		return GetWorkingDirectory()
 
@@ -277,6 +446,9 @@ func ExecuteTool(call ToolCall) ToolResult {
 			return ToolResult{Success: false, Error: "path parameter required"}
 		}
 		return ChangeDirectory(path)
+
+	case "system_info":
+		return GetSystemInfo()
 
 	default:
 		return ToolResult{Success: false, Error: fmt.Sprintf("unknown tool: %s", call.Name)}
