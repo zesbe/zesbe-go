@@ -93,6 +93,7 @@ type streamErrorMsg struct{ err error }
 type checkStreamMsg struct{}
 type sessionLoadedMsg struct{}
 type tipRotateMsg struct{}
+type focusCheckMsg struct{}
 
 // Quick action definition
 type QuickAction struct {
@@ -162,6 +163,7 @@ type Model struct {
 	lastContext      string // Current working context (file/dir)
 	commandHistory   []string
 	historyIndex     int
+	lastFocusTime    time.Time // Track last focus time for mobile keyboard
 }
 
 // New creates a new application model
@@ -224,7 +226,15 @@ func New(cfg *config.Config) *Model {
 func (m *Model) Init() tea.Cmd {
 	// Clear any garbage in textarea from terminal escape sequences
 	m.textarea.Reset()
-	return tea.Batch(textarea.Blink, m.spinner.Tick)
+	m.lastFocusTime = time.Now()
+	// Start periodic focus check for mobile keyboard support
+	return tea.Batch(
+		textarea.Blink,
+		m.spinner.Tick,
+		tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+			return focusCheckMsg{}
+		}),
+	)
 }
 
 // Update handles messages and updates the model
@@ -416,8 +426,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle mouse/touch to focus textarea (helps trigger keyboard on mobile)
 		if !m.streaming {
 			m.textarea.Focus()
+			m.lastFocusTime = time.Now()
 			return m, textarea.Blink
 		}
+
+	case focusCheckMsg:
+		// Periodic focus check - ensure textarea stays focused for mobile keyboard
+		if !m.streaming && m.ready {
+			m.textarea.Focus()
+		}
+		// Schedule next focus check
+		return m, tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+			return focusCheckMsg{}
+		})
 
 	case spinner.TickMsg:
 		if m.streaming {
@@ -552,7 +573,8 @@ func (m *Model) View() string {
 
 	// Input area with nice border
 	var inputView string
-	inputLabel := helpStyle.Render("  ✏️  Type here (tap to show keyboard):")
+	// More prominent input label for mobile
+	inputLabel := successStyle.Render("  ✏️  TAP HERE TO TYPE → ")
 
 	if m.streaming {
 		// Show streaming indicator above the textarea
@@ -592,10 +614,12 @@ func (m *Model) View() string {
 		statusBar = helpStyle.Render("  ⏳ AI is responding... │ Ctrl+C: Cancel")
 	} else {
 		msgCount := len(m.messages)
+		// More visible tap indicator for mobile
+		tapHint := successStyle.Render("👆 TAP INPUT TO TYPE")
 		statusBar = helpStyle.Render(fmt.Sprintf(
-			"  💬 %d │ 📡 %d │ ⏱️ %s%s │ 👆 Tap input area │ Ctrl+A: Actions",
+			"  💬 %d │ 📡 %d │ ⏱️ %s%s │ ",
 			msgCount, stats.TotalRequests, uptime, modeIndicator,
-		))
+		)) + tapHint
 	}
 
 	// Build the view
