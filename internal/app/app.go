@@ -367,24 +367,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, textarea.Blink
 	}
 
-	// Update textarea (only when not streaming)
-	if !m.streaming {
-		var cmd tea.Cmd
-		m.textarea, cmd = m.textarea.Update(msg)
-		cmds = append(cmds, cmd)
+	// Update textarea (always, so user can type while streaming)
+	var taCmd tea.Cmd
+	m.textarea, taCmd = m.textarea.Update(msg)
+	cmds = append(cmds, taCmd)
 
-		// Filter ANSI escape codes from textarea input
-		currentValue := m.textarea.Value()
-		cleanedValue := stripANSI(currentValue)
-		if currentValue != cleanedValue {
-			m.textarea.SetValue(cleanedValue)
-		}
+	// Filter ANSI escape codes from textarea input
+	currentValue := m.textarea.Value()
+	cleanedValue := stripANSI(currentValue)
+	if currentValue != cleanedValue {
+		m.textarea.SetValue(cleanedValue)
 	}
 
 	// Update viewport
-	var cmd tea.Cmd
-	m.viewport, cmd = m.viewport.Update(msg)
-	cmds = append(cmds, cmd)
+	var vpCmd tea.Cmd
+	m.viewport, vpCmd = m.viewport.Update(msg)
+	cmds = append(cmds, vpCmd)
 
 	return m, tea.Batch(cmds...)
 }
