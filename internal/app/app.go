@@ -23,7 +23,7 @@ import (
 )
 
 // Version info
-const AppVersion = "1.1.0"
+const AppVersion = "1.2.0"
 
 // Styles
 var (
@@ -92,6 +92,41 @@ type streamDoneMsg string
 type streamErrorMsg struct{ err error }
 type checkStreamMsg struct{}
 type sessionLoadedMsg struct{}
+type tipRotateMsg struct{}
+
+// Quick action definition
+type QuickAction struct {
+	Key         string
+	Label       string
+	Description string
+	Command     string
+}
+
+// Available quick actions
+var quickActions = []QuickAction{
+	{"1", "📁 List Files", "Show current directory", "/ls"},
+	{"2", "📊 Git Status", "Show git status", "/git status"},
+	{"3", "📜 Git Log", "Show recent commits", "/git log"},
+	{"4", "📃 Git Diff", "Show changes", "/git diff"},
+	{"5", "💡 Help", "Show all commands", "/help"},
+	{"6", "📈 Stats", "Show statistics", "/stats"},
+	{"7", "🔄 New Chat", "Start new conversation", "/new"},
+	{"8", "🗑️ Clear", "Clear chat history", "/clear"},
+}
+
+// Tips for the welcome screen
+var tips = []string{
+	"💡 Use /help to see all available commands",
+	"💡 Press Ctrl+S to view session statistics",
+	"💡 AI can read, write, and edit files directly",
+	"💡 Use /git status to check repository state",
+	"💡 Press Ctrl+A to open quick actions menu",
+	"💡 Use Ctrl+M for multi-line input mode",
+	"💡 Type /providers to switch AI providers",
+	"💡 Use /run <command> to execute shell commands",
+	"💡 Session history is saved automatically",
+	"💡 Press Ctrl+N to start a new conversation",
+}
 
 // ChatMessage represents a message in the chat
 type ChatMessage struct {
@@ -119,6 +154,14 @@ type Model struct {
 	mdRenderer    *glamour.TermRenderer
 	statusText    string
 	startTime     time.Time
+	// New enterprise features
+	showQuickActions bool
+	multiLineMode    bool
+	currentTip       int
+	tokensUsed       int
+	lastContext      string // Current working context (file/dir)
+	commandHistory   []string
+	historyIndex     int
 }
 
 // New creates a new application model
@@ -157,16 +200,23 @@ func New(cfg *config.Config) *Model {
 		}
 	}
 
+	// Get current working directory for context
+	cwd, _ := os.Getwd()
+
 	return &Model{
-		config:       cfg,
-		client:       ai.NewClient(cfg),
-		sessionStore: store,
-		textarea:     ta,
-		spinner:      sp,
-		messages:     []ChatMessage{},
-		mdRenderer:   renderer,
-		statusText:   "Ready",
-		startTime:    time.Now(),
+		config:         cfg,
+		client:         ai.NewClient(cfg),
+		sessionStore:   store,
+		textarea:       ta,
+		spinner:        sp,
+		messages:       []ChatMessage{},
+		mdRenderer:     renderer,
+		statusText:     "Ready",
+		startTime:      time.Now(),
+		currentTip:     int(time.Now().UnixNano()) % len(tips),
+		lastContext:    cwd,
+		commandHistory: []string{},
+		historyIndex:   -1,
 	}
 }
 
@@ -197,10 +247,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "enter":
+			// In multi-line mode, Ctrl+Enter sends
+			if m.multiLineMode {
+				return m, nil // Let textarea handle Enter for newline
+			}
+			fallthrough
+
+		case "ctrl+enter":
 			input := strings.TrimSpace(m.textarea.Value())
 			if input == "" {
 				return m, nil
 			}
+
+			// Save to command history
+			if len(m.commandHistory) == 0 || m.commandHistory[len(m.commandHistory)-1] != input {
+				m.commandHistory = append(m.commandHistory, input)
+				if len(m.commandHistory) > 50 { // Keep last 50 commands
+					m.commandHistory = m.commandHistory[1:]
+				}
+			}
+			m.historyIndex = -1
 
 			// Handle commands
 			if strings.HasPrefix(input, "/") {
@@ -253,6 +319,69 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+s":
 			// Show session stats
 			return m.showStats()
+
+		case "ctrl+a":
+			// Toggle quick actions menu
+			m.showQuickActions = !m.showQuickActions
+			m.updateViewport()
+			return m, nil
+
+		case "ctrl+m":
+			// Toggle multi-line mode
+			m.multiLineMode = !m.multiLineMode
+			if m.multiLineMode {
+				m.textarea.KeyMap.InsertNewline.SetEnabled(true)
+				m.textarea.SetHeight(6)
+				m.addSystemMessage("📝 Multi-line mode enabled. Press Enter for new line, Ctrl+Enter to send.")
+			} else {
+				m.textarea.KeyMap.InsertNewline.SetEnabled(false)
+				m.textarea.SetHeight(3)
+				m.addSystemMessage("📝 Single-line mode enabled. Press Enter to send.")
+			}
+			m.updateViewport()
+			return m, nil
+
+		case "up":
+			// Command history navigation (only if textarea is empty or showing history)
+			if len(m.commandHistory) > 0 && m.textarea.Value() == "" || m.historyIndex >= 0 {
+				if m.historyIndex < len(m.commandHistory)-1 {
+					m.historyIndex++
+					m.textarea.SetValue(m.commandHistory[len(m.commandHistory)-1-m.historyIndex])
+				}
+				return m, nil
+			}
+
+		case "down":
+			// Command history navigation
+			if m.historyIndex > 0 {
+				m.historyIndex--
+				m.textarea.SetValue(m.commandHistory[len(m.commandHistory)-1-m.historyIndex])
+				return m, nil
+			} else if m.historyIndex == 0 {
+				m.historyIndex = -1
+				m.textarea.SetValue("")
+				return m, nil
+			}
+
+		case "1", "2", "3", "4", "5", "6", "7", "8":
+			// Quick action selection when menu is open
+			if m.showQuickActions {
+				idx := int(msg.String()[0] - '1')
+				if idx >= 0 && idx < len(quickActions) {
+					m.showQuickActions = false
+					m.textarea.SetValue(quickActions[idx].Command)
+					// Execute the command
+					return m.handleCommand(quickActions[idx].Command)
+				}
+			}
+
+		case "esc":
+			// Close quick actions menu
+			if m.showQuickActions {
+				m.showQuickActions = false
+				m.updateViewport()
+				return m, nil
+			}
 		}
 
 	case tea.WindowSizeMsg:
@@ -420,22 +549,52 @@ func (m *Model) View() string {
 		inputView = m.textarea.View()
 	}
 
+	// Quick actions menu (if open)
+	var quickActionsView string
+	if m.showQuickActions {
+		var qaBuilder strings.Builder
+		qaBuilder.WriteString("\n" + statusStyle.Render("  ⚡ Quick Actions") + " (Press number to select, Esc to close)\n\n")
+		for _, action := range quickActions {
+			qaBuilder.WriteString(fmt.Sprintf("  %s  %s  %s\n",
+				successStyle.Render("["+action.Key+"]"),
+				action.Label,
+				helpStyle.Render(action.Description),
+			))
+		}
+		quickActionsView = qaBuilder.String()
+	}
+
 	// Status bar with stats
 	var statusBar string
 	uptime := time.Since(m.startTime).Round(time.Second)
 	stats := m.client.GetStats()
 
+	// Mode indicator
+	modeIndicator := ""
+	if m.multiLineMode {
+		modeIndicator = " │ 📝 Multi-line"
+	}
+
 	if m.streaming {
-		statusBar = helpStyle.Render("  Press Ctrl+C to cancel")
+		statusBar = helpStyle.Render("  ⏳ AI is responding... │ Ctrl+C: Cancel")
 	} else {
 		msgCount := len(m.messages)
 		statusBar = helpStyle.Render(fmt.Sprintf(
-			"  %d msgs │ %d reqs │ Up: %s │ Enter: Send │ /help │ Ctrl+S: Stats │ Ctrl+C: Quit",
-			msgCount, stats.TotalRequests, uptime,
+			"  💬 %d │ 📡 %d │ ⏱️ %s%s │ Ctrl+A: Actions │ Ctrl+M: Multi-line │ Ctrl+S: Stats",
+			msgCount, stats.TotalRequests, uptime, modeIndicator,
 		))
 	}
 
 	// Build the view
+	if m.showQuickActions {
+		return fmt.Sprintf("%s\n%s\n%s\n%s\n\n%s",
+			title,
+			chatView,
+			quickActionsView,
+			inputView,
+			statusBar,
+		)
+	}
 	return fmt.Sprintf("%s\n%s\n\n%s\n\n%s",
 		title,
 		chatView,
@@ -803,14 +962,17 @@ func (m *Model) updateViewport() {
 	var content strings.Builder
 
 	for _, msg := range m.messages {
+		// Format timestamp
+		timestamp := helpStyle.Render(msg.Timestamp.Format("15:04"))
+
 		switch msg.Role {
 		case "user":
-			content.WriteString(userLabelStyle.Render())
+			content.WriteString(fmt.Sprintf("%s %s\n", userLabelStyle.Render(), timestamp))
 			content.WriteString(stripANSI(msg.Content))
 			content.WriteString("\n\n")
 
 		case "assistant":
-			content.WriteString(assistantLabelStyle.Render())
+			content.WriteString(fmt.Sprintf("%s %s\n", assistantLabelStyle.Render(), timestamp))
 			cleanContent := stripANSI(msg.Content)
 			rendered, err := m.mdRenderer.Render(cleanContent)
 			if err != nil {
@@ -821,6 +983,7 @@ func (m *Model) updateViewport() {
 			content.WriteString("\n\n")
 
 		case "system":
+			content.WriteString(fmt.Sprintf("%s %s\n", systemStyle.Render("› System:"), timestamp))
 			cleanContent := stripANSI(msg.Content)
 			rendered, err := m.mdRenderer.Render(cleanContent)
 			if err != nil {
@@ -831,7 +994,7 @@ func (m *Model) updateViewport() {
 			content.WriteString("\n\n")
 
 		case "error":
-			content.WriteString(errorStyle.Render())
+			content.WriteString(fmt.Sprintf("%s %s\n", errorStyle.Render(), timestamp))
 			content.WriteString(stripANSI(msg.Content))
 			content.WriteString("\n\n")
 		}
@@ -851,14 +1014,17 @@ func (m *Model) updateViewportWithStreaming() {
 
 	// Show existing messages
 	for _, msg := range m.messages {
+		// Format timestamp
+		timestamp := helpStyle.Render(msg.Timestamp.Format("15:04"))
+
 		switch msg.Role {
 		case "user":
-			content.WriteString(userLabelStyle.Render())
+			content.WriteString(fmt.Sprintf("%s %s\n", userLabelStyle.Render(), timestamp))
 			content.WriteString(stripANSI(msg.Content))
 			content.WriteString("\n\n")
 
 		case "assistant":
-			content.WriteString(assistantLabelStyle.Render())
+			content.WriteString(fmt.Sprintf("%s %s\n", assistantLabelStyle.Render(), timestamp))
 			cleanContent := stripANSI(msg.Content)
 			rendered, err := m.mdRenderer.Render(cleanContent)
 			if err != nil {
@@ -869,6 +1035,7 @@ func (m *Model) updateViewportWithStreaming() {
 			content.WriteString("\n\n")
 
 		case "system":
+			content.WriteString(fmt.Sprintf("%s %s\n", systemStyle.Render("› System:"), timestamp))
 			cleanContent := stripANSI(msg.Content)
 			rendered, err := m.mdRenderer.Render(cleanContent)
 			if err != nil {
@@ -879,7 +1046,7 @@ func (m *Model) updateViewportWithStreaming() {
 			content.WriteString("\n\n")
 
 		case "error":
-			content.WriteString(errorStyle.Render())
+			content.WriteString(fmt.Sprintf("%s %s\n", errorStyle.Render(), timestamp))
 			content.WriteString(stripANSI(msg.Content))
 			content.WriteString("\n\n")
 		}
@@ -887,7 +1054,8 @@ func (m *Model) updateViewportWithStreaming() {
 
 	// Show streaming response with cursor
 	if m.streaming && m.streamingText.Len() > 0 {
-		content.WriteString(assistantLabelStyle.Render())
+		nowTime := helpStyle.Render(time.Now().Format("15:04"))
+		content.WriteString(fmt.Sprintf("%s %s\n", assistantLabelStyle.Render(), nowTime))
 		content.WriteString(stripANSI(m.streamingText.String()))
 		content.WriteString(streamingStyle.Render("▋"))
 		content.WriteString("\n")
@@ -901,35 +1069,58 @@ func (m *Model) updateViewportWithStreaming() {
 func (m *Model) renderWelcome() string {
 	wd, _ := os.Getwd()
 
+	// Get current tip
+	tip := tips[m.currentTip%len(tips)]
+
 	welcome := fmt.Sprintf(`
 %s
 
-Welcome to **Zesbe Go** v%s - Enterprise AI Coding Assistant
+## Welcome to **Zesbe Go** v%s
+*Enterprise AI Coding Assistant*
 
-%s
+---
+
+### 🔧 Configuration
 | Setting | Value |
 |---------|-------|
 | Provider | %s |
 | Model | %s |
 | Directory | %s |
 
+---
+
+### ⌨️ Keyboard Shortcuts
+| Key | Action |
+|-----|--------|
+| Enter | Send message |
+| Ctrl+A | Quick actions menu |
+| Ctrl+M | Toggle multi-line mode |
+| Ctrl+S | Show statistics |
+| Ctrl+N | New conversation |
+| Ctrl+L | Clear chat |
+| ↑/↓ | Command history |
+
+---
+
+### 🚀 Quick Start
+1. Type your message and press **Enter**
+2. Use **/help** for all commands
+3. AI can read, write, edit files and run commands
+4. Press **Ctrl+A** for quick actions
+
+---
+
 %s
-- Type your message and press **Enter** to send
-- AI can read/write files, run commands, and help with code
-- Use **/help** for available commands
-- Press **Ctrl+S** for statistics
-- Press **Ctrl+C** to quit
 
 %s
 `,
-		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7D56F4")).Render("  Zesbe Go "),
+		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7D56F4")).Render("  🚀 Zesbe Go "),
 		AppVersion,
-		helpStyle.Render("Configuration:"),
 		"`"+m.config.Provider+"`",
 		"`"+m.config.Model+"`",
 		"`"+wd+"`",
-		helpStyle.Render("Quick Start:"),
-		successStyle.Render("Ready to assist with your coding tasks!"),
+		successStyle.Render(tip),
+		helpStyle.Render("Ready to assist with your coding tasks!"),
 	)
 
 	rendered, err := m.mdRenderer.Render(welcome)
