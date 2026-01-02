@@ -82,14 +82,15 @@ type ClientStats struct {
 
 // Client represents an AI API client with enterprise features
 type Client struct {
-	config       *config.Config
-	messages     []Message
-	httpClient   *http.Client
-	maxToolLoops int
-	rateLimiter  *rate.Limiter
-	stats        *ClientStats
-	retryConfig  RetryConfig
-	mu           sync.RWMutex
+	config          *config.Config
+	messages        []Message
+	httpClient      *http.Client
+	maxToolLoops    int
+	rateLimiter     *rate.Limiter
+	stats           *ClientStats
+	retryConfig     RetryConfig
+	mu              sync.RWMutex
+	anthropicClient *AnthropicClient // Native Anthropic SDK client
 }
 
 // RetryConfig holds retry configuration
@@ -120,7 +121,7 @@ func NewClient(cfg *config.Config) *Client {
 	// Configure rate limiter based on provider
 	rps := getRateLimitForProvider(cfg.Provider)
 
-	return &Client{
+	client := &Client{
 		config: cfg,
 		messages: []Message{
 			{
@@ -141,6 +142,19 @@ func NewClient(cfg *config.Config) *Client {
 		stats:        &ClientStats{},
 		retryConfig:  DefaultRetryConfig(),
 	}
+
+	// Initialize Anthropic SDK client for native tool calling
+	if cfg.Provider == "anthropic" && cfg.APIKey != "" {
+		client.anthropicClient = NewAnthropicClient(
+			cfg.APIKey,
+			cfg.Model,
+			4096,  // maxTokens
+			0.7,   // temperature
+		)
+		logger.Info("Initialized Anthropic SDK with native tool calling")
+	}
+
+	return client
 }
 
 // getRateLimitForProvider returns the rate limit for a provider
@@ -206,6 +220,16 @@ type DisplayPart struct {
 
 // Chat sends a message and returns streaming response channels
 func (c *Client) Chat(userMessage string) (<-chan string, <-chan error) {
+	// Use Anthropic SDK for native tool calling when available
+	if c.anthropicClient != nil {
+		logger.Info("Using Anthropic SDK with native tool calling")
+		c.stats.mu.Lock()
+		c.stats.TotalRequests++
+		c.stats.LastRequestTime = time.Now()
+		c.stats.mu.Unlock()
+		return c.anthropicClient.ChatStream(userMessage)
+	}
+
 	tokenChan := make(chan string, 100)
 	errChan := make(chan error, 1)
 
@@ -485,6 +509,10 @@ func (c *Client) ClearHistory() {
 	defer c.mu.Unlock()
 	if len(c.messages) > 0 {
 		c.messages = c.messages[:1]
+	}
+	// Also clear Anthropic client history
+	if c.anthropicClient != nil {
+		c.anthropicClient.ClearHistory()
 	}
 }
 
