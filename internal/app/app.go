@@ -407,10 +407,12 @@ func (m *Model) View() string {
 	// Chat viewport
 	chatView := m.viewport.View()
 
-	// Input area
+	// Input area - always show textarea, add streaming indicator above it
 	var inputView string
 	if m.streaming {
-		inputView = streamingStyle.Render(fmt.Sprintf("  %s %s", m.spinner.View(), m.statusText))
+		// Show streaming indicator above the textarea
+		streamingIndicator := streamingStyle.Render(fmt.Sprintf("  %s %s", m.spinner.View(), m.statusText))
+		inputView = streamingIndicator + "\n" + m.textarea.View()
 	} else {
 		inputView = m.textarea.View()
 	}
